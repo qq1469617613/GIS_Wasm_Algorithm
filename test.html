@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>GIS WASM 坐标转换测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .input-group { margin: 10px 0; }
+        label { display: inline-block; width: 120px; }
+        input { padding: 5px; margin: 5px; }
+        button { padding: 10px 20px; background: #007cba; color: white; border: none; cursor: pointer; }
+        .result { margin: 20px 0; padding: 10px; background: #f0f0f0; border-radius: 5px; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>GIS WASM 坐标转换测试</h1>
+        
+        <div class="input-group">
+            <label>经度 (Longitude):</label>
+            <input type="number" id="longitude" value="116.404" step="any">
+        </div>
+        
+        <div class="input-group">
+            <label>纬度 (Latitude):</label>
+            <input type="number" id="latitude" value="39.915" step="any">
+        </div>
+        
+        <div class="input-group">
+            <label>源坐标系 EPSG:</label>
+            <select id="fromEpsg">
+                <option value="4326">4326 (WGS84 经纬度)</option>
+                <option value="3857">3857 (Web Mercator)</option>
+                <option value="4258">4258 (ETRS89)</option>
+                <option value="4269">4269 (NAD83)</option>
+                <option value="4490">4490 (CGCS2000)</option>
+            </select>
+        </div>
+        
+        <div class="input-group">
+            <label>目标坐标系 EPSG:</label>
+            <select id="toEpsg">
+                <option value="3857">3857 (Web Mercator)</option>
+                <option value="4326">4326 (WGS84 经纬度)</option>
+                <option value="4258">4258 (ETRS89)</option>
+                <option value="4269">4269 (NAD83)</option>
+                <option value="4490">4490 (CGCS2000)</option>
+            </select>
+        </div>
+        
+        <button onclick="transformCoordinate()">转换坐标</button>
+        <button onclick="runTests()">运行测试用例</button>
+        
+        <div id="result" class="result" style="display: none;"></div>
+        
+        <h2>预定义测试用例</h2>
+        <p>点击"运行测试用例"将测试以下转换：</p>
+        <ul>
+            <li>北京天安门: WGS84 (116.404, 39.915) → Web Mercator</li>
+            <li>上海东方明珠: WGS84 (121.506, 31.245) → Web Mercator</li>
+            <li>Web Mercator → WGS84 反向转换</li>
+        </ul>
+    </div>
+
+    <script type="module">
+        import init, { transform_point, JsPoint } from './pkg/GIS_Wasm_Algorithm.js';
+        
+        let wasm;
+        
+        async function run() {
+            wasm = await init();
+            console.log('WASM 模块加载成功');
+            
+            // 使全局可用
+            window.transform_point = transform_point;
+            window.JsPoint = JsPoint;
+        }
+        
+        window.transformCoordinate = function() {
+            if (!wasm) {
+                showResult('WASM 模块尚未加载完成', 'error');
+                return;
+            }
+            
+            const lon = parseFloat(document.getElementById('longitude').value);
+            const lat = parseFloat(document.getElementById('latitude').value);
+            const fromEpsg = parseInt(document.getElementById('fromEpsg').value);
+            const toEpsg = parseInt(document.getElementById('toEpsg').value);
+            
+            try {
+                const result = transform_point(lon, lat, fromEpsg, toEpsg);
+                const resultText = `
+                    <strong>转换成功!</strong><br>
+                    输入坐标: (${lon}, ${lat}) EPSG:${fromEpsg}<br>
+                    输出坐标: (${result.x.toFixed(6)}, ${result.y.toFixed(6)}, ${result.z.toFixed(6)}) EPSG:${toEpsg}
+                `;
+                showResult(resultText, 'success');
+            } catch (error) {
+                showResult(`转换失败: ${error}`, 'error');
+            }
+        };
+        
+        window.runTests = function() {
+            if (!wasm) {
+                showResult('WASM 模块尚未加载完成', 'error');
+                return;
+            }
+            
+            const testCases = [
+                {
+                    name: '北京天安门 WGS84 → Web Mercator',
+                    lon: 116.404, lat: 39.915, from: 4326, to: 3857
+                },
+                {
+                    name: '上海东方明珠 WGS84 → Web Mercator',
+                    lon: 121.506, lat: 31.245, from: 4326, to: 3857
+                },
+                {
+                    name: 'Web Mercator → WGS84 (反向转换)',
+                    lon: 12958742.0, lat: 4825771.0, from: 3857, to: 4326
+                }
+            ];
+            
+            let results = '<strong>测试结果:</strong><br>';
+            let passCount = 0;
+            
+            testCases.forEach((test, index) => {
+                try {
+                    const result = transform_point(test.lon, test.lat, test.from, test.to);
+                    results += `✅ ${test.name}: (${result.x.toFixed(6)}, ${result.y.toFixed(6)})<br>`;
+                    passCount++;
+                } catch (error) {
+                    results += `❌ ${test.name}: 失败 - ${error}<br>`;
+                }
+            });
+            
+            results += `<br><strong>通过: ${passCount}/${testCases.length}</strong>`;
+            showResult(results, passCount === testCases.length ? 'success' : 'error');
+        };
+        
+        function showResult(text, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = text;
+            resultDiv.className = 'result ' + type;
+            resultDiv.style.display = 'block';
+        }
+        
+        run();
+    </script>
+</body>
+</html>

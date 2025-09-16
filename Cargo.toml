@@ -1,0 +1,12 @@
+[package]
+name = "GIS_Wasm_Algorithm"
+version = "0.1.0"
+edition = "2024"
+
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+proj4rs = { version = "0.1.8", features = ["crs-definitions"] }
+wasm-bindgen = "0.2"
