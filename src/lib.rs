@@ -58,6 +58,7 @@ pub fn polygon_signed_area(geo_json: JsValue) -> Result<f64, JsValue> {
 }
 
 //带洞多边形面积计算
+#[wasm_bindgen]
 pub fn polygon_unsigned_area(geo_json: JsValue) -> Result<f64, JsValue> {
     let geo = geo_json_to_geometry(geo_json);
     match geo {
