@@ -1,5 +1,8 @@
+use geo::Geometry;
+use geojson::Geometry as GeoJsonGeometry;
 use proj4rs::Proj;
 use proj4rs::transform::transform;
+use wasm_bindgen::JsValue;
 
 pub fn proj_string_for_epsg(epsg: u32) -> Option<String> {
     let s = match epsg {
@@ -29,15 +32,20 @@ pub fn proj_string_for_epsg(epsg: u32) -> Option<String> {
     Some(s.to_string())
 }
 
-pub fn transform_point(lon_deg: f64, lat_deg: f64, from_epsg: u32, to_epsg: u32)->Result<(f64,f64,f64),Box<dyn std::error::Error>> {
+pub fn transform_point(
+    lon_deg: f64,
+    lat_deg: f64,
+    from_epsg: u32,
+    to_epsg: u32,
+) -> Result<(f64, f64, f64), Box<dyn std::error::Error>> {
     let mut point = (lon_deg.to_radians(), lat_deg.to_radians(), 0.0_f64);
     let from_def = proj_string_for_epsg(from_epsg).ok_or("当前坐标系不支持")?;
-    let from_proj=Proj::from_proj_string(&from_def)?;
+    let from_proj = Proj::from_proj_string(&from_def)?;
 
-    let to_def=proj_string_for_epsg(to_epsg).ok_or("当前坐标系不支持")?;
-    let to_proj=Proj::from_proj_string(&to_def)?;
+    let to_def = proj_string_for_epsg(to_epsg).ok_or("当前坐标系不支持")?;
+    let to_proj = Proj::from_proj_string(&to_def)?;
 
-    transform(&from_proj,&to_proj,&mut point)?;
+    transform(&from_proj, &to_proj, &mut point)?;
     // 如果目标是经纬度坐标系，则将弧度转为度
     if matches!(to_epsg, 4326 | 4979 | 4258 | 4269 | 4490) {
         point.0 = point.0.to_degrees();
@@ -46,3 +54,12 @@ pub fn transform_point(lon_deg: f64, lat_deg: f64, from_epsg: u32, to_epsg: u32)
     Ok(point)
 }
 
+pub fn geo_json_to_geometry(geo_json: JsValue) -> Result<Geometry, JsValue> {
+    //将传入的 JsValue转化 geojson::Geometry
+    let geojson_geom: GeoJsonGeometry = serde_wasm_bindgen::from_value(geo_json)
+        .map_err(|e| JsValue::from_str(&format!("Invalid GeoJSON geometry: {}", e)))?;
+    //在转化一次转化成 geo_types::Geometry
+    let geom: Geometry<f64> = Geometry::try_from(&geojson_geom)
+        .map_err(|e| JsValue::from_str(&format!("Invalid geometry: {}", e)))?;
+    Ok(geom)
+}
