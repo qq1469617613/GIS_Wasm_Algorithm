@@ -62,11 +62,13 @@
             <li>北京天安门: WGS84 (116.404, 39.915) → Web Mercator</li>
             <li>上海东方明珠: WGS84 (121.506, 31.245) → Web Mercator</li>
             <li>Web Mercator → WGS84 反向转换</li>
+            <li>GeoJSON 面积计算（来自 aaa.geojson，简化：投影到 Web Mercator 后鞋带公式）</li>
+            <li>两点间哈弗辛距离（北京 ↔ 上海）</li>
         </ul>
     </div>
 
     <script type="module">
-        import init, { transform_point, JsPoint } from './pkg/GIS_Wasm_Algorithm.js';
+        import init, { transform_point, JsPoint, haversine_distance, bbox } from './pkg/GIS_Wasm_Algorithm.js';
         
         let wasm;
         
@@ -77,6 +79,8 @@
             // 使全局可用
             window.transform_point = transform_point;
             window.JsPoint = JsPoint;
+            window.haversine_distance = haversine_distance;
+            window.bbox = bbox;
         }
         
         window.transformCoordinate = function() {
@@ -103,7 +107,7 @@
             }
         };
         
-        window.runTests = function() {
+        window.runTests = async function() {
             if (!wasm) {
                 showResult('WASM 模块尚未加载完成', 'error');
                 return;
@@ -127,7 +131,8 @@
             let results = '<strong>测试结果:</strong><br>';
             let passCount = 0;
             
-            testCases.forEach((test, index) => {
+            // 投影转换用例
+            testCases.forEach((test) => {
                 try {
                     const result = transform_point(test.lon, test.lat, test.from, test.to);
                     results += `✅ ${test.name}: (${result.x.toFixed(6)}, ${result.y.toFixed(6)})<br>`;
@@ -136,8 +141,98 @@
                     results += `❌ ${test.name}: 失败 - ${error}<br>`;
                 }
             });
+
+            results += `<br><strong>通过: ${passCount}/${testCases.length}</strong><br>`;
+
+            // 哈弗辛距离计算（北京 ↔ 上海）
+            try {
+                const dist = haversine_distance(116.404, 39.915, 121.506, 31.245);
+                results += `📏 哈弗辛距离（北京 ↔ 上海）: ${(dist / 1000).toFixed(2)} km<br>`;
+            } catch (error) {
+                results += `❌ 哈弗辛距离计算失败: ${error}<br>`;
+            }
+
+            // 从 aaa.geojson 读取并计算面积（简化：投影到 Web Mercator 后用鞋带公式求面积，单位 m²）
+            try {
+                const resp = await fetch('aaa.geojson');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+
+                // 提取几何
+                let geom = null;
+                if (data && data.type === 'FeatureCollection' && Array.isArray(data.features) && data.features.length > 0) {
+                    geom = data.features[0].geometry;
+                } else if (data && data.type === 'Feature' && data.geometry) {
+                    geom = data.geometry;
+                } else if (data && data.type && data.coordinates) {
+                    geom = data; // 已是 Geometry
+                }
+                if (!geom) throw new Error('无法从 aaa.geojson 提取几何 Geometry');
+
+                // 工具函数：去掉闭合重复点
+                const cleanRing = (ring) => {
+                    if (!ring || ring.length < 3) return ring || [];
+                    const first = ring[0];
+                    const last = ring[ring.length - 1];
+                    if (first[0] === last[0] && first[1] === last[1]) return ring.slice(0, -1);
+                    return ring;
+                };
+
+                // 工具函数：鞋带公式面积（已在米单位坐标）
+                const ringArea = (ring) => {
+                    const r = cleanRing(ring);
+                    let area = 0;
+                    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+                        const [x1, y1] = r[j];
+                        const [x2, y2] = r[i];
+                        area += (x1 * y2 - x2 * y1);
+                    }
+                    return Math.abs(area) / 2;
+                };
+
+                // 将经纬度投影到 Web Mercator（EPSG:3857）
+                const projRingTo3857 = (ringLngLat) => ringLngLat.map(([lon, lat]) => {
+                    const p = transform_point(lon, lat, 4326, 3857);
+                    return [p.x, p.y];
+                });
+
+                const areaPolygon3857 = (poly) => {
+                    // poly: [outer, hole1, hole2, ...]
+                    if (!Array.isArray(poly) || poly.length === 0) return 0;
+                    const outer = projRingTo3857(poly[0]);
+                    let area = ringArea(outer);
+                    for (let i = 1; i < poly.length; i++) {
+                        const hole = projRingTo3857(poly[i]);
+                        area -= ringArea(hole);
+                    }
+                    return Math.max(area, 0);
+                };
+
+                let areaM2 = 0;
+                if (geom.type === 'Polygon') {
+                    areaM2 = areaPolygon3857(geom.coordinates);
+                } else if (geom.type === 'MultiPolygon') {
+                    for (const poly of geom.coordinates) {
+                        areaM2 += areaPolygon3857(poly);
+                    }
+                } else {
+                    throw new Error(`暂不支持的几何类型: ${geom.type}`);
+                }
+
+                results += `📐 GeoJSON 面积（面积计算，Web Mercator 近似）: ${areaM2.toFixed(2)} m²<br>`;
+
+                // 计算并显示 bbox（直接基于 GeoJSON 原始坐标系）
+                try {
+                    const box = bbox(geom);
+                    const arr = Array.from(box);
+                    results += `🧭 BBox: [${arr.map(v => Number(v).toFixed(6)).join(', ')}]` + '<br>';
+                } catch (e) {
+                    results += `❌ BBox 计算失败: ${e}<br>`;
+                }
+            } catch (error) {
+                results += `❌ GeoJSON 面积计算失败: ${error}<br>`;
+            }
             
-            results += `<br><strong>通过: ${passCount}/${testCases.length}</strong>`;
             showResult(results, passCount === testCases.length ? 'success' : 'error');
         };
         

@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "geo",
  "geojson",
+ "js-sys",
  "proj4rs",
  "serde-wasm-bindgen",
  "wasm-bindgen",

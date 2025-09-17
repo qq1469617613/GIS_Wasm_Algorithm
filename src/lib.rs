@@ -1,7 +1,8 @@
 mod common;
 use common::geo_json_to_geometry;
-use geo::{Area, Haversine};
-use geo::{Distance, Geometry, Point};
+use geo::{Area, BoundingRect, Haversine};
+use geo::{Distance, Point};
+use js_sys::Array;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -64,5 +65,26 @@ pub fn polygon_unsigned_area(geo_json: JsValue) -> Result<f64, JsValue> {
     match geo {
         Ok(geo) => Ok(geo.unsigned_area()),
         Err(_) => f64::try_from(JsValue::from_str(&"数据转化失败".to_string())),
+    }
+}
+
+//bbox计算
+#[wasm_bindgen]
+pub fn bbox(geo_json: JsValue) -> Result<JsValue, JsValue> {
+    let geom = geo_json_to_geometry(geo_json);
+    match geom {
+        Ok(geo) => {
+            if let Some(rect) = geo.bounding_rect() {
+                let arr = js_sys::Array::new();
+                arr.push(&JsValue::from_f64(rect.min().x));
+                arr.push(&JsValue::from_f64(rect.min().y));
+                arr.push(&JsValue::from_f64(rect.max().x));
+                arr.push(&JsValue::from_f64(rect.max().y));
+                Ok(arr.into())
+            } else {
+                Err(JsValue::from_str("bbox获取失败"))
+            }
+        }
+        Err(_) => Err(JsValue::from_str("数据转化失败")), 
     }
 }

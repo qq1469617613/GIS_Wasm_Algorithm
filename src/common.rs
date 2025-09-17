@@ -38,7 +38,15 @@ pub fn transform_point(
     from_epsg: u32,
     to_epsg: u32,
 ) -> Result<(f64, f64, f64), Box<dyn std::error::Error>> {
-    let mut point = (lon_deg.to_radians(), lat_deg.to_radians(), 0.0_f64);
+
+    // 初始化为原始输入（经纬度: 度；投影: 米）
+    let mut point = (lon_deg, lat_deg, 0.0_f64);
+    // 如果源坐标系是地理坐标（经纬度），转换为弧度供投影库使用
+    if matches!(from_epsg, 4326 | 4979 | 4258 | 4269 | 4490) {
+        point.0 = point.0.to_radians();
+        point.1 = point.1.to_radians();
+    }
+
     let from_def = proj_string_for_epsg(from_epsg).ok_or("当前坐标系不支持")?;
     let from_proj = Proj::from_proj_string(&from_def)?;
 
@@ -46,6 +54,7 @@ pub fn transform_point(
     let to_proj = Proj::from_proj_string(&to_def)?;
 
     transform(&from_proj, &to_proj, &mut point)?;
+
     // 如果目标是经纬度坐标系，则将弧度转为度
     if matches!(to_epsg, 4326 | 4979 | 4258 | 4269 | 4490) {
         point.0 = point.0.to_degrees();
@@ -63,3 +72,5 @@ pub fn geo_json_to_geometry(geo_json: JsValue) -> Result<Geometry, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Invalid geometry: {}", e)))?;
     Ok(geom)
 }
+
+
