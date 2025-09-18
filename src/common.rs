@@ -73,4 +73,3 @@ pub fn geo_json_to_geometry(geo_json: JsValue) -> Result<Geometry, JsValue> {
     Ok(geom)
 }
 
-

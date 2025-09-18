@@ -1,8 +1,7 @@
 mod common;
 use common::geo_json_to_geometry;
-use geo::{Area, BoundingRect, Haversine};
+use geo::{Area, BoundingRect, Centroid, Haversine};
 use geo::{Distance, Point};
-use js_sys::Array;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -85,6 +84,19 @@ pub fn bbox(geo_json: JsValue) -> Result<JsValue, JsValue> {
                 Err(JsValue::from_str("bbox获取失败"))
             }
         }
-        Err(_) => Err(JsValue::from_str("数据转化失败")), 
+        Err(_) => Err(JsValue::from_str("数据转化失败")),
+    }
+}
+
+#[wasm_bindgen]
+pub fn centroid(geo_json: JsValue) -> Result<JsPoint, JsValue> {
+    let geo = geo_json_to_geometry(geo_json);
+    match geo?.centroid() {
+        Some(centroid) => Ok(JsPoint {
+            x: centroid.x(),
+            y: centroid.y(),
+            z: 0.0,
+        }),
+        None => Err(JsValue::from_str("质心计算失败")),
     }
 }
