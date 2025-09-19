@@ -1,7 +1,14 @@
 mod common;
+mod dijkstra;
+
+use crate::dijkstra::build_graph;
 use common::geo_json_to_geometry;
 use geo::{Area, BoundingRect, Centroid, Haversine};
 use geo::{Distance, Point};
+use ordered_float::OrderedFloat;
+use serde::Serialize;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -99,4 +106,60 @@ pub fn centroid(geo_json: JsValue) -> Result<JsPoint, JsValue> {
         }),
         None => Err(JsValue::from_str("质心计算失败")),
     }
+}
+
+#[derive(Serialize)]
+struct PathItem {
+    node: u32,
+    pred: Option<u32>,
+    dist: f64,
+}
+
+#[wasm_bindgen]
+pub fn dijkstra(edges: JsValue, start: u32, undirected: bool) -> Result<JsValue, JsValue> {
+    let inputs: Vec<dijkstra::InputDescription> =
+        serde_wasm_bindgen::from_value(edges).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let graph = build_graph(&inputs, undirected);
+    let mut dist: BTreeMap<u32, f64> = BTreeMap::new();
+    let mut pred: BTreeMap<u32, Option<u32>> = BTreeMap::new();
+    let mut priority_queue: BinaryHeap<std::cmp::Reverse<(OrderedFloat<f64>, u32)>> =
+        BinaryHeap::new();
+
+    dist.insert(start, 0.0);
+    pred.insert(start, None);
+    priority_queue.push(Reverse((OrderedFloat(0.0), start)));
+
+    while let Some(Reverse((OrderedFloat(d), u))) = priority_queue.pop() {
+        if let Some(&best) = dist.get(&u) {
+            if d > best {
+                continue;
+            }
+        }
+        if let Some(neighs) = graph.get(&u) {
+            for (&v, &w) in neighs.iter() {
+                let nd = d + w;
+                let update = match dist.get(&v) {
+                    None => true,
+                    Some(&old) => nd < old,
+                };
+                if update {
+                    dist.insert(v, nd);
+                    pred.insert(v, Some(u));
+                    priority_queue.push(Reverse((OrderedFloat(nd), v)));
+                }
+            }
+        }
+    }
+    let mut out: Vec<PathItem> = Vec::with_capacity(dist.len());
+    for (node, &d) in dist.iter() {
+        let p = pred.get(node).cloned().unwrap_or(None);
+        out.push(PathItem {
+            node: *node,
+            pred: p,
+            dist: d,
+        });
+    }
+    out.sort_by_key(|x| x.node);
+    serde_wasm_bindgen::to_value(&out)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
